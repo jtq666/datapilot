@@ -12,7 +12,7 @@ web/node_modules/
 web/dist/
 web/*.tsbuildinfo
 
-# Local credentials, generated output and downloaded reference implementation.
+# Local credentials and generated output.
 .env.*
 !.env.example
 !.env.template
@@ -31,17 +31,4 @@ web/*.tsbuildinfo
 *.pt
 .DS_Store
 Thumbs.db
-vendor/dbgpt-upstream/
-
-# Generated upstream archive used only during local extraction.
-vendor/*.zip
-
-# Upstream runtime state, caches and local databases.
-vendor/dbgpt-upstream/.venv/
-vendor/dbgpt-upstream/.uv/
-vendor/dbgpt-upstream/.pytest_cache/
-vendor/dbgpt-upstream/pilot/data/
-vendor/dbgpt-upstream/pilot/meta_data/*.db
-vendor/dbgpt-upstream/pilot/meta_data/alembic/versions/*_new_migration.py
-vendor/dbgpt-upstream/logs/
-
+vendor/

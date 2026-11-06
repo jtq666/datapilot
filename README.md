@@ -18,7 +18,6 @@
 ## 项目边界
 
 - `data_platform/`、`web/`、`tests/` 和 `evaluation/` 是本项目学习主线，手册围绕这些代码逐步讲解。
-- 本仓库公开 `data_platform` 项目主体，不包含本地单独保存的 DB-GPT 上游参考代码快照；本地参考目录的说明见 [`vendor/README.md`](vendor/README.md)。
 - 默认模型路径是 Ollama + Qwen，默认模型标签为 `qwen2.5:14b`。Agent 只维护原生 Tool Calling；旧客户端显式提交 `protocol=react` 会收到 422，不会静默切换。
 - 当前没有接入运行时的权威 JSON 指标目录。评测题中的 gold SQL 是评分标准，不是 Agent 运行时指标治理功能。
 
@@ -63,6 +62,16 @@ npm run dev
 
 网页地址为 `http://127.0.0.1:5173/`，API 文档为 `http://127.0.0.1:18090/docs`。网页和 API 都需要运行；真实模型问答还需要 Ollama 服务和已下载的模型。
 
+依赖和模型已准备好后，也可以在项目根目录执行启动脚本：
+
+```powershell
+.\scripts\run_full_platform.ps1
+# 仅启动后端：
+.\scripts\run_full_platform.ps1 -SkipFrontend
+```
+
+脚本默认启动当前 DataPilot API 和网页；按 Ctrl+C 停止本次脚本启动的进程。
+
 ## 检查与本地评测
 
 ```powershell
@@ -100,4 +109,4 @@ cd F:\shixi\data-agent-platform
 
 从本页的一次请求流程开始，再阅读 `data_platform/agents/runner.py`、`agents/tools.py` 和 `runtime/store.py`，了解工具执行与状态保存。检索与业务题评测见 [evaluation/README.md](evaluation/README.md)。
 
-能力状态速查见[功能对照矩阵](docs/功能对照矩阵.md)；五个简历工作点的模块、数据合同、实施顺序与验收门槛见[工程设计方案](docs/简历五点工程设计与验收方案.md)；DB-GPT 上游边界见[参考版说明](docs/参考版复现说明.md)。设计方案中的待办不是已实现功能，本轮未执行模型评测。
+能力状态速查见[功能对照矩阵](docs/功能对照矩阵.md)；五个简历工作点的模块、数据合同、实施顺序与验收门槛见[工程设计方案](docs/简历五点工程设计与验收方案.md)。设计方案中的待办不是已实现功能，本轮未执行模型评测。
