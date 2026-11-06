@@ -1,0 +1,18 @@
+{
+  "schema_version": "orders-eval-v2",
+  "seed": 20261017,
+  "database": "evaluation/fixtures/orders_eval_v2.db",
+  "case_file": "evaluation/datasets/business_cases_v2.jsonl",
+  "case_count": 40,
+  "row_counts": {
+    "customers": 120,
+    "products": 50,
+    "campaigns": 10,
+    "orders": 400,
+    "order_items": 1013,
+    "payments": 301,
+    "refunds": 83
+  },
+  "database_sha256": "676e1545c01492cdb411eb8934e29e8bcd7202a823c4ef04fbd32d67bb82439b",
+  "dataset_sha256": "69d4789c014bd0ce5612268497165beee291169d5790c9b5f790cbf4794dcdbd"
+}

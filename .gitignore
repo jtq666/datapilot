@@ -1,0 +1,47 @@
+__pycache__/
+.pytest_cache/
+.pytest_tmp/
+.venv/
+*.pyc
+.env
+data/
+logs/
+cache/
+*.egg-info/
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+
+# Local credentials, generated output and downloaded reference implementation.
+.env.*
+!.env.example
+!.env.template
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+!evaluation/fixtures/orders_eval_v2.db
+*.safetensors
+*.gguf
+*.pt
+.DS_Store
+Thumbs.db
+vendor/dbgpt-upstream/
+
+# Generated upstream archive used only during local extraction.
+vendor/*.zip
+
+# Upstream runtime state, caches and local databases.
+vendor/dbgpt-upstream/.venv/
+vendor/dbgpt-upstream/.uv/
+vendor/dbgpt-upstream/.pytest_cache/
+vendor/dbgpt-upstream/pilot/data/
+vendor/dbgpt-upstream/pilot/meta_data/*.db
+vendor/dbgpt-upstream/pilot/meta_data/alembic/versions/*_new_migration.py
+vendor/dbgpt-upstream/logs/
+
