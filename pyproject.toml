@@ -1,28 +1,23 @@
 [project]
-name = "data-agent-platform"
+name = "datapilot-v2"
 version = "0.1.0"
-description = "Independently implemented data intelligence platform"
 requires-python = ">=3.12"
 dependencies = [
-  "jsonschema>=4.20",
-  "httpx>=0.27",
-  "sqlglot>=27",
-  "fastapi>=0.115",
-  "uvicorn>=0.30",
-  "argon2-cffi>=23.1",
+  "argon2-cffi>=23,<26", "fastapi>=0.115,<1", "httpx>=0.27,<1",
+  "jsonschema>=4,<5", "langgraph>=1,<2", "langgraph-checkpoint-postgres>=3,<4",
+  "psycopg[binary,pool]>=3.2,<4", "sqlglot>=27,<31", "uvicorn>=0.30,<1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8,<10"]
 
-[project.scripts]
-data-agent-platform = "data_platform.api.__main__:main"
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["datapilot*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
-addopts = "--basetemp=.pytest_tmp"
-
-[tool.setuptools.packages.find]
-include = ["data_platform*"]
-
+markers = ["postgres: requires initialized PostgreSQL databases and roles"]

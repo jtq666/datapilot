@@ -1,112 +1,41 @@
-# DataPilot｜企业数据分析 Agent 平台
+# DataPilot 企业数据分析 Agent 平台
 
-**开发与维护：江添琦**
+面向业务人员提供自然语言查数、带业务口径和 SQL 证据的报告，以及审批后的站内共享。本分支提供新版的完整代码与独立部署配置。
 
-> 基于 Ollama + Qwen 的自然语言数据分析个人项目，提供工具调用、只读 SQL 查询、知识检索、任务状态与运行追踪。使用方式和工程边界见下文，评测方法见 [evaluation/README.md](evaluation/README.md)。
+## 启动
 
-## 项目解决什么问题
+需要 Python 3.12、Node.js 22+、Docker Compose、DeepSeek API Key 和 Jina API Key。
 
-业务人员用自然语言提问，Agent 根据需要读取 SQLite 数据库结构、调用只读查询工具，并将结果整理成回答。一次简单请求按顺序经过：
+1. 复制 `.env.example` 为 `.env`，为两个数据库设置本地密码，同步对应数据库连接串。模型 Key 写入本机环境变量或本地 `.env`。
+2. 在项目根目录执行 `docker compose -p datapilot-v2 up -d --wait`。如果用 Ubuntu WSL 自带的 Docker，在 WSL 的项目目录执行同一命令。Windows 后端需要能连到映射的 55432 和 55433 端口。如果退出 WSL 终端后引擎随发行版停掉，可以让该终端执行 `docker compose -p datapilot-v2 up -d --wait && sleep infinity`，保持运行到演示结束。
+3. 在 PowerShell 执行以下命令。启动脚本可选用 `-UseExistingApiKeys` 从本机原配置映射已有 Key。
 
-1. 网页把问题和所选数据源提交给 FastAPI；后端检查访问范围。
-2. AgentRunner 通过 Provider 请求 Ollama/Qwen；模型提出结构化工具请求。
-3. ToolRegistry 检查工具名和参数，调用绑定当前数据源的 SQLite 只读工具。
-4. AgentRunner 把工具结果交回模型；模型生成最终回答，后端返回网页。
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\python -m pip install -e '.[dev]'
+   . .\infra\load-env.ps1
+   .\.venv\Scripts\python -m datapilot.bootstrap
+   .\.venv\Scripts\python -m uvicorn datapilot.api:app --host 127.0.0.1 --port 18091
+   ```
 
-自研 Agent 的核心只有四个职责：Provider 联系 Ollama/Qwen；AgentRunner 控制模型与工具的循环；ToolRegistry 校验并执行工具；State 保存本次运行的消息、待执行工具、轮次和答案。SQL 安全约束查询工具，知识检索以可选工具接入，Trace 记录执行过程。流式展示和有限恢复是附加工程能力；`workflows/` 是独立固定流程，不属于 Agent 循环。
+4. 另开终端，在 `web` 目录执行 `npm ci` 和 `npm run dev`。打开 `http://127.0.0.1:5174`。使用初始化账号登录，或在仅供本机演示的 `.env` 中设 `DATAPILOT_LOCAL_DEMO=1` 后重启后端，直接选择分析员或报告接收人。
 
-## 项目边界
+## 工作台
 
-- `data_platform/`、`web/`、`tests/` 和 `evaluation/` 是本项目学习主线，手册围绕这些代码逐步讲解。
-- 默认模型路径是 Ollama + Qwen，默认模型标签为 `qwen2.5:14b`。Agent 只维护原生 Tool Calling；旧客户端显式提交 `protocol=react` 会收到 422，不会静默切换。
-- 当前没有接入运行时的权威 JSON 指标目录。评测题中的 gold SQL 是评分标准，不是 Agent 运行时指标治理功能。
+- **智能问数**以会话为单位保存多轮提问，点击示例即可填写问题。发出问题后，页面显示实际工具执行进度。结果支持表格、适用数据的柱状图、SQL 和 CSV 导出。
+- **数据源**展示当前 PostgreSQL 数据源可读的表和字段。
+- **知识库**支持发布规则、查看版本和切片，并用同一条混合检索链路试查资料。
+- **共享报告**在聊天内审批，接收人在独立入口打开报告。可在侧栏底部切换本机演示角色。
 
-## 本地启动
+## 演示与测试
 
-使用 Python 3.12 或更新版本、Node.js 及 Ollama。先在仓库根目录安装后端依赖，模型文件由 Ollama 管理：
+以 analyst 登录，在「发布知识规则」发布退款率定义。样例数据的支付月份是业务库首次初始化的月份，跨月演示时在问题中指定该月份。选择「生成并共享报告」，指定规则与 reviewer，输入「按渠道计算本月已支付订单退款率」。打开查询证据和执行追踪，再确认共享。以 reviewer 登录后可从收件列表查看报告。
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e '.[dev]'
-```
+- `python -m pytest -q` 运行本地回归用例。载入数据库环境后，测试也会验证 PostgreSQL 读取、检查点续接和站内共享。
+- 配置两个演示密码及模型凭据后，可执行 `python -m tests.live_smoke` 复现一次功能验收。它发布两版演示规则，检查 SQL 证据，并在 API 进程重启后验证审批和共享。
+- `npm run build` 构建网页。停止网页和 API 后，可用同一 Compose 项目执行 `docker compose -p datapilot-v2 stop`。
+- 设计、面试讲法、版本切换和评测口径见[新版实现与评测说明](docs/DataPilot-项目学习与面试手册.md)。
 
-启动本地模型：
+## 代码与来源
 
-```powershell
-ollama serve
-ollama pull qwen2.5:14b
-$env:MODEL_PROVIDER = 'ollama'
-$env:OLLAMA_MODEL = 'qwen2.5:14b'
-$env:OLLAMA_BASE_URL = 'http://127.0.0.1:11434/v1'
-```
-
-另开终端启动 API：
-
-```powershell
-cd F:\shixi\data-agent-platform
-.\.venv\Scripts\python.exe -m data_platform.api bootstrap-user --username demo
-.\.venv\Scripts\python.exe -m data_platform.api serve --port 18090
-```
-
-再启动网页：
-
-```powershell
-cd F:\shixi\data-agent-platform\web
-New-Item -ItemType Directory -Force 'F:\shixi\_resources\npm-cache', 'F:\shixi\_resources\tmp' | Out-Null
-$env:npm_config_cache = 'F:\shixi\_resources\npm-cache'
-$env:TEMP = 'F:\shixi\_resources\tmp'
-$env:TMP = 'F:\shixi\_resources\tmp'
-npm ci
-npm run dev
-```
-
-网页地址为 `http://127.0.0.1:5173/`，API 文档为 `http://127.0.0.1:18090/docs`。网页和 API 都需要运行；真实模型问答还需要 Ollama 服务和已下载的模型。
-
-依赖和模型已准备好后，也可以在项目根目录执行启动脚本：
-
-```powershell
-.\scripts\run_full_platform.ps1
-# 仅启动后端：
-.\scripts\run_full_platform.ps1 -SkipFrontend
-```
-
-脚本默认启动当前 DataPilot API 和网页；按 Ctrl+C 停止本次脚本启动的进程。
-
-## 检查与本地评测
-
-```powershell
-cd F:\shixi\data-agent-platform
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m evaluation.validate_eval_dataset
-.\.venv\Scripts\python.exe -m evaluation.run_local_benchmark
-```
-
-`run_local_benchmark` 不调用模型，检查的是固定小样本上的检索排序与 SQL 执行/拦截契约，不代表 Ollama + Qwen 的回答准确率。评测口径和已有结果见 [`evaluation/README.md`](evaluation/README.md)。
-
-## 目录地图
-
-| 路径 | 用途 |
-|---|---|
-| `data_platform/agents/` | Agent 消息合同、工具注册和执行循环 |
-| `data_platform/model_gateway/` | Ollama + Qwen 模型适配 |
-| `data_platform/data_sources/` | SQLite Schema 读取和只读查询 |
-| `data_platform/knowledge/` | 文档切块、关键词/向量检索和知识库工具 |
-| `data_platform/runtime/` | Run、Event、Checkpoint 和状态持久化 |
-| `data_platform/conversations/` | 用户可见的会话历史 |
-| `data_platform/workflows/` | 独立的固定工作流；不是 Agent 核心循环，主线学习可跳过 |
-| `web/` | React 本地工作台 |
-| `tests/` | 不依赖真实模型结果的工程测试 |
-| `evaluation/` | 冻结数据集、离线基准和评测记录 |
-
-## 当前限制
-
-- 项目作者确认异机评测采用与本项目一致的方案和判分口径，实测汇总为：40 道业务题端到端成功 34 道（85%），32 道检索题前五命中 28 道（87.5%）。旧电脑原始逐题记录尚未提供给本仓库，当前不能独立复核失败题与具体模型版本。仓库现已另建 `retrieval-v1` 的 32 题、19 份语料、Manifest 和评测脚本，**这是未运行的新题集，不是 28/32 的原始证据**；方法和口径见[评测说明](evaluation/README.md)。
-- SQL 安全边界针对本地 SQLite 开发场景，不是任意数据库的生产级沙箱；项目也没有生产级部署与运维保障。
-- 当前本地检索基准使用确定性测试向量和构造语料，结果只证明测试代码路径，不证明真实语料或真实模型效果。
-- 当前未实现运行时 JSON 指标目录，因此简历和讲解都不应声称已经完成动态业务口径治理。
-
-## 建议阅读顺序
-
-从本页的一次请求流程开始，再阅读 `data_platform/agents/runner.py`、`agents/tools.py` 和 `runtime/store.py`，了解工具执行与状态保存。检索与业务题评测见 [evaluation/README.md](evaluation/README.md)。
-
-能力状态速查见[功能对照矩阵](docs/功能对照矩阵.md)；五个简历工作点的模块、数据合同、实施顺序与验收门槛见[工程设计方案](docs/简历五点工程设计与验收方案.md)。设计方案中的待办不是已实现功能，本轮未执行模型评测。
+`datapilot/agent.py` 是 LangGraph 执行主线，`datapilot/sql.py` 和 `datapilot/knowledge.py` 分别管理只读查询与检索。沿用 DataPilot 旧版的工具注册实现和 Jina 适配代码，许可见 [LICENSE](LICENSE)。

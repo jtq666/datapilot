@@ -1,2 +1,0 @@
-"""HTTP application entry points."""
-
