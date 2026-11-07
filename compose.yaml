@@ -5,7 +5,7 @@ services:
       POSTGRES_DB: datapilot_app
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set in .env}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set in .env}
-    ports: ["127.0.0.1:55432:5432"]
+    ports: ["127.0.0.1:${APP_DB_PORT:-55432}:5432"]
     volumes:
       - app-data:/var/lib/postgresql/data
       - ./infra/init-app.sh:/docker-entrypoint-initdb.d/01-app.sh:ro
@@ -20,7 +20,7 @@ services:
       POSTGRES_DB: datapilot_business
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set in .env}
       BUSINESS_DB_PASSWORD: ${BUSINESS_DB_PASSWORD:?set in .env}
-    ports: ["127.0.0.1:55433:5432"]
+    ports: ["127.0.0.1:${BUSINESS_DB_PORT:-55433}:5432"]
     volumes:
       - business-data:/var/lib/postgresql/data
       - ./infra/init-business.sh:/docker-entrypoint-initdb.d/01-business.sh:ro

@@ -7,7 +7,7 @@
 需要 Python 3.12、Node.js 22+、Docker Compose、DeepSeek API Key 和 Jina API Key。
 
 1. 复制 `.env.example` 为 `.env`，为两个数据库设置本地密码，同步对应数据库连接串。模型 Key 写入本机环境变量或本地 `.env`。
-2. 在项目根目录执行 `docker compose -p datapilot-v2 up -d --wait`。如果用 Ubuntu WSL 自带的 Docker，在 WSL 的项目目录执行同一命令。Windows 后端需要能连到映射的 55432 和 55433 端口。如果退出 WSL 终端后引擎随发行版停掉，可以让该终端执行 `docker compose -p datapilot-v2 up -d --wait && sleep infinity`，保持运行到演示结束。
+2. 在项目根目录执行 `docker compose -p datapilot-v2 up -d --wait`。如果用 Ubuntu WSL 自带的 Docker，在 WSL 的项目目录执行同一命令。Windows 后端需要能连到映射的数据库端口（默认 55432 和 55433）。如果端口被占用，在本地 `.env` 调整对应的 `APP_DB_PORT` 或 `BUSINESS_DB_PORT`，同步修改该数据库连接串的端口后重新启动。如果退出 WSL 终端后引擎随发行版停掉，可以让该终端执行 `docker compose -p datapilot-v2 up -d --wait && sleep infinity`，保持运行到演示结束。
 3. 在 PowerShell 执行以下命令。启动脚本可选用 `-UseExistingApiKeys` 从本机原配置映射已有 Key。
 
    ```powershell
