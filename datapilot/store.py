@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS runs (
     error text, created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS rule_key text;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS clarification jsonb;
 CREATE INDEX IF NOT EXISTS runs_by_conversation ON runs(conversation,created_at,id);
 CREATE TABLE IF NOT EXISTS events (
     sequence bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -142,7 +143,7 @@ class Store:
             # Compute expiry on read so pending tasks are bounded without a worker.
             return conn.execute("""
                 SELECT id,workspace,owner,source,conversation,mode,question,recipient,answer,evidence,rule,deadline,
-                    decision,error,created_at,rule_key,
+                    decision,error,created_at,rule_key,clarification,
                     CASE WHEN status='waiting' AND decision IS NULL AND deadline<=now()
                          THEN 'expired' ELSE status END AS status
                 FROM runs WHERE id=%s AND workspace=%s AND owner=%s
@@ -178,7 +179,7 @@ class Store:
                 return None
             return conn.execute("""
                 SELECT * FROM (
-                    SELECT id,conversation,mode,question,recipient,answer,evidence,rule,deadline,decision,error,created_at,
+                    SELECT id,conversation,mode,question,recipient,answer,evidence,rule,deadline,decision,error,created_at,clarification,
                            CASE WHEN status='waiting' AND decision IS NULL AND deadline<=now()
                            THEN 'expired' ELSE status END AS status
                     FROM runs WHERE conversation=%s ORDER BY created_at DESC,id DESC LIMIT 50
@@ -201,14 +202,21 @@ class Store:
         deadline = now() + timedelta(hours=24) if approval else None
         with self.connect() as conn:
             conn.execute("""
-                UPDATE runs SET answer=%s,evidence=%s,rule=%s,status=%s,deadline=COALESCE(deadline,%s)
-                WHERE id=%s AND status='running'
+                UPDATE runs SET answer=%s,evidence=%s,rule=%s,status=%s,deadline=COALESCE(deadline,%s),clarification=NULL
+                WHERE id=%s AND status IN ('running','clarifying')
             """, (answer, Jsonb(evidence), Jsonb(rule), status, deadline, run_id))
 
     def finish(self, run_id, status, error=None):
         with self.connect() as conn:
-            conn.execute("UPDATE runs SET status=%s,error=%s WHERE id=%s AND status IN ('running','waiting')",
+            conn.execute("UPDATE runs SET status=%s,error=%s,clarification=NULL WHERE id=%s AND status IN ('running','waiting','clarifying')",
                          (status, error, run_id))
+
+    def clarify(self, run_id, clarification):
+        with self.connect() as conn:
+            conn.execute("""
+                UPDATE runs SET status='clarifying',clarification=%s
+                WHERE id=%s AND status IN ('running','clarifying')
+            """, (Jsonb(clarification), run_id))
 
     @contextmanager
     def approval_lock(self, run_id):
@@ -217,12 +225,20 @@ class Store:
             acquired, = conn.execute("SELECT pg_try_advisory_lock(hashtextextended(%s, 0))", (run_id,)).fetchone()
             yield acquired
 
-    def decide(self, run_id, approval):
+    def promote_report(self, run_id):
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE runs SET mode='report',status='running' WHERE id=%s AND mode='ask' AND status='completed'",
+                (run_id,),
+            )
+
+    def decide(self, run_id, approval, recipient=None):
         with self.connect() as conn:
             return conn.execute("""
-                UPDATE runs SET decision=%s WHERE id=%s AND status='waiting' AND decision IS NULL AND deadline>now()
+                UPDATE runs SET decision=%s,recipient=COALESCE(%s,recipient)
+                WHERE id=%s AND status='waiting' AND decision IS NULL AND deadline>now()
                 RETURNING id
-            """, (approval, run_id)).fetchone() is not None
+            """, (approval, recipient, run_id)).fetchone() is not None
 
     def share(self, run_id):
         with self.connect() as conn:

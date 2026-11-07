@@ -48,6 +48,10 @@ class RunRequest(BaseModel):
 
 class Decision(BaseModel):
     approved: bool
+    recipient: str | None = Field(None, min_length=1, max_length=80)
+
+class Clarification(BaseModel):
+    choice: str = Field(min_length=1, max_length=80)
 
 
 class Document(BaseModel):
@@ -75,7 +79,9 @@ def project_graph(store, graph, run_id):
     snapshot = graph.get_state(graph_config(run_id))
     state = snapshot.values
     if snapshot.interrupts or (not snapshot.next and state.get("status") in {"completed", "rejected"}):
-        if snapshot.interrupts:
+        if snapshot.interrupts and snapshot.interrupts[0].value.get("action") == "clarify_metric":
+            store.clarify(run_id, snapshot.interrupts[0].value)
+        elif snapshot.interrupts:
             store.report(run_id, state["answer"], state["evidence"], state["rule"], approval=True)
             store.event(run_id, "waiting", "approval_requested", {})
         elif state["status"] == "completed":
@@ -206,8 +212,8 @@ def create_app(store, source, knowledge, model, checkpointer, *, local_demo=Fals
         if request.mode == "report" and (not request.rule_key or not request.recipient or
                                           request.recipient not in store.recipients(WORKSPACE, name)):
             raise HTTPException(422, "Select a rule and an eligible recipient")
-        if request.mode == "ask" and (request.rule_key or request.recipient):
-            raise HTTPException(422, "A rule and recipient are only accepted for reports")
+        if request.mode == "ask" and request.recipient:
+            raise HTTPException(422, "A recipient is only accepted for reports")
         run_id = uuid4().hex
         data = {"id": run_id, "workspace": WORKSPACE, "owner": name, "source": request.source,
                 "mode": request.mode, "question": request.question, "recipient": request.recipient,
@@ -274,6 +280,58 @@ def create_app(store, source, knowledge, model, checkpointer, *, local_demo=Fals
         owner(run_id, name)
         return store.events(run_id)
 
+    @app.post("/runs/{run_id}/report")
+    def make_report(run_id: str, name: str = Depends(user)):
+        owner(run_id, name)
+        with store.approval_lock(run_id) as acquired:
+            if not acquired:
+                raise HTTPException(409, "Run is being updated")
+            row = owner(run_id, name)
+            if row["mode"] == "report" and row["status"] != "running":
+                return row
+            if (row["mode"], row["status"]) not in {("ask", "completed"), ("report", "running")} or not row["evidence"]:
+                raise HTTPException(409, "A completed query with evidence is required")
+            config = graph_config(run_id)
+            snapshot = graph.get_state(config)
+            if not snapshot.values.get("evidence"):
+                raise HTTPException(409, "Query checkpoint is unavailable")
+            try:
+                if row["mode"] == "ask":
+                    # Schedule approval from the completed answer without running the model or SQL again.
+                    if snapshot.values["mode"] == "ask":
+                        graph.update_state(config, {"mode": "report"}, as_node="report")
+                    store.promote_report(run_id)
+                snapshot = project_graph(store, graph, run_id)
+                if not snapshot.interrupts and snapshot.next:
+                    graph.invoke(None, config, durability="sync")
+                    project_graph(store, graph, run_id)
+            except Exception as exc:
+                raise HTTPException(503, "Report unavailable. Retry the same report.") from exc
+            return owner(run_id, name)
+
+    @app.post("/runs/{run_id}/clarification")
+    def clarify(run_id: str, request: Clarification, name: str = Depends(user)):
+        owner(run_id, name)
+        with store.approval_lock(run_id) as acquired:
+            if not acquired:
+                raise HTTPException(409, "Run is being updated")
+            row = owner(run_id, name)
+            if row["status"] != "clarifying":
+                raise HTTPException(409, "Run is not awaiting clarification")
+            config = graph_config(run_id)
+            snapshot = graph.get_state(config)
+            pending = snapshot.interrupts[0].value if snapshot.interrupts else row["clarification"]
+            if request.choice not in pending["choices"]:
+                raise HTTPException(422, "Select one of the offered metric definitions")
+            try:
+                if snapshot.interrupts or snapshot.next:
+                    command = Command(resume=request.choice) if snapshot.interrupts else None
+                    graph.invoke(command, config, durability="sync")
+                project_graph(store, graph, run_id)
+            except Exception as exc:
+                raise HTTPException(503, "Clarification unavailable. Retry the same choice.") from exc
+            return owner(run_id, name)
+
     @app.post("/runs/{run_id}/approval")
     def approve(run_id: str, request: Decision, name: str = Depends(user)):
         owner(run_id, name)
@@ -283,13 +341,18 @@ def create_app(store, source, knowledge, model, checkpointer, *, local_demo=Fals
             snapshot = project_graph(store, graph, run_id)
             row = owner(run_id, name)
             decision = request.approved
+            recipient = request.recipient or row["recipient"]
             if row["decision"] is not None and row["decision"] != decision:
                 raise HTTPException(409, "A different decision was already recorded")
+            if row["recipient"] and recipient != row["recipient"]:
+                raise HTTPException(409, "A different recipient was already selected")
             if row["decision"] == decision and row["status"] in {"shared", "rejected", "failed"}:
                 return row
             if row["status"] != "waiting":
                 raise HTTPException(409, "Run is not awaiting approval")
-            if row["decision"] is None and not store.decide(run_id, decision):
+            if decision and recipient not in store.recipients(WORKSPACE, name):
+                raise HTTPException(422, "Select an eligible recipient")
+            if row["decision"] is None and not store.decide(run_id, decision, recipient if decision else None):
                 raise HTTPException(409, "Approval expired")
             try:
                 command = Command(resume=decision) if snapshot.interrupts else None

@@ -153,6 +153,84 @@ def test_approval_survives_new_graph_and_uses_one_share():
             conn.execute("UPDATE knowledge_documents SET active=false WHERE doc_key=%s", (rule_key,))
 
 
+def test_follow_up_report_reuses_evidence_and_confirms_recipient_after_restart():
+    app_dsn, business_dsn = databases()
+    store = Store(app_dsn)
+    store.setup()
+    analyst, reviewer = [prefix + uuid4().hex for prefix in ("test-owner-", "test-review-")]
+    hashed = PasswordHasher().hash("integration-pass")
+    store.seed_user(analyst, hashed, True)
+    store.seed_user(reviewer, hashed, False)
+    source = BusinessSource(business_dsn)
+    knowledge = Knowledge(store, Embeddings())
+    choices = ["只算成功退款", "也算处理中退款"]
+
+    class FollowUpModel(Model):
+        def complete(self, messages, tools):
+            self.calls += 1
+            last = messages[-1]
+            if last["role"] == "user":
+                if last["content"] == "退款口径怎么选？":
+                    assert {"role": "user", "content": "订单有几笔？"} in messages
+                    return call("clarify", "clarify_metric", {"question": "处理中算吗？", "choices": choices})
+                return call("sql", "query_database", {"sql": "SELECT COUNT(*) AS total FROM orders"})
+            if last["tool_call_id"] == "clarify":
+                assert choices[0] in last["content"]
+                assert "本次以用户确认的选项为准" in messages[0]["content"]
+                return call("sql", "query_database", {"sql": SQL + " LIMIT 1"})
+            return {"role": "assistant", "content": "查询结果见 Q1。"}
+
+    model = FollowUpModel()
+    try:
+        with PostgresSaver.from_conn_string(app_dsn) as saver:
+            saver.setup()
+            with TestClient(create_app(store, source, knowledge, model, saver)) as client:
+                def login(user):
+                    token = client.post("/auth/login", json={"username": user, "password": "integration-pass"}).json()["token"]
+                    return {"Authorization": "Bearer " + token}
+
+                headers, receiver = login(analyst), login(reviewer)
+                first = client.post("/runs", headers=headers, json={"question": "订单有几笔？"}).json()
+                follow_up = client.post("/runs", headers=headers, json={
+                    "question": "退款口径怎么选？", "conversation": first["conversation"],
+                }).json()
+                assert follow_up["status"] == "clarifying"
+                assert follow_up["clarification"]["choices"] == choices
+                assert not follow_up["evidence"]
+                assert model.calls == 3
+        run_id = follow_up["id"]
+        with PostgresSaver.from_conn_string(app_dsn) as saver:
+            with TestClient(create_app(store, source, knowledge, model, saver)) as client:
+                path = f"/runs/{run_id}"
+                assert client.post(path + "/clarification", headers=headers, json={"choice": "invalid"}).status_code == 422
+                completed = client.post(path + "/clarification", headers=headers, json={"choice": choices[0]}).json()
+                assert completed["status"] == "completed", completed
+                assert completed["clarification"] is None
+                assert completed["evidence"][0]["rows"] == [["app", 4, 1]]
+                assert first["evidence"][0]["rows"] == [[8]]
+                assert model.calls == 5
+                assert client.post(path + "/report", headers=receiver).status_code == 404
+                draft = client.post(path + "/report", headers=headers).json()
+                assert draft["status"] == "waiting" and draft["recipient"] is None, draft
+                assert draft["evidence"] == completed["evidence"]
+                assert client.post(path + "/report", headers=headers).json()["id"] == run_id
+                assert client.get(f"/shared/{run_id}", headers=receiver).status_code == 404
+                assert client.post(path + "/approval", headers=headers, json={"approved": True}).status_code == 422
+        with PostgresSaver.from_conn_string(app_dsn) as saver:
+            with TestClient(create_app(store, source, knowledge, model, saver)) as client:
+                payload = {"approved": True, "recipient": reviewer}
+                for _ in range(2):
+                    assert client.post(path + "/approval", headers=headers, json=payload).json()["status"] == "shared"
+                shared = client.get(f"/shared/{run_id}", headers=receiver).json()
+                assert shared["evidence"] == completed["evidence"]
+                assert model.calls == 5
+                assert client.get(f"/runs/{first['id']}", headers=headers).json()["mode"] == "ask"
+    finally:
+        with store.connect() as conn:
+            conn.execute("DELETE FROM sessions WHERE username IN (%s,%s)", (analyst, reviewer))
+            conn.execute("DELETE FROM members WHERE username IN (%s,%s)", (analyst, reviewer))
+
+
 def test_server_enforces_query_timeout():
     _, business = databases()
     admin_password = os.getenv("POSTGRES_ADMIN_PASSWORD")

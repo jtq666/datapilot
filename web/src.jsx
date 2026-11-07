@@ -8,7 +8,7 @@ const suggestions = [
   ["database", "查订单总量", "数据库里一共有多少笔订单？", "适合快速核对数据"],
   ["chart", "按渠道看订单", "按渠道统计订单数量和订单金额，用表格展示。", "按维度汇总业务数据"],
   ["book", "了解退款口径", "检索并解释退款率的业务定义，标注资料来源。", "从知识库查找规则"],
-  ["file", "生成渠道退款报告", "按渠道计算退款率，列出订单数和退款订单数。", "选择指标规则并审批共享", "report"],
+  ["file", "准备订单统计报告", "按渠道统计订单笔数，用表格展示。", "查完后可将结果保存为报告"],
 ];
 const nav = [["chat","message","智能问数"],["sources","database","数据源"],["knowledge","book","知识库"],["inbox","inbox","共享报告"]];
 
@@ -27,6 +27,15 @@ async function api(path, token, body, signal) {
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     const messages = {"Authentication required":"登录已过期，请重新登录。","Invalid credentials":"账号或密码有误。","Workspace membership required":"你没有访问这个工作区的权限。","Knowledge search unavailable":"检索服务暂时不可用。","Approval in progress":"审批正在处理，请稍后刷新。","Approval expired":"审批已过期。","Run is not awaiting approval":"这份报告当前无法审批。","Select a rule and an eligible recipient":"请选择指标规则和有效的接收人。","Approval recorded. Retry the same decision.":"决定已保存，请重试同一个审批操作。"};
+    Object.assign(messages, {
+      "Run is being updated":"任务正在处理，请稍后再试。",
+      "Select an eligible recipient":"请选择有效的接收人。",
+      "Report unavailable. Retry the same report.":"生成报告暂时失败，请重试。",
+      "Clarification unavailable. Retry the same choice.":"任务续接暂时失败，请重试同一个选项。",
+      "Select one of the offered metric definitions":"请选择页面给出的一个计算口径。",
+      "A completed query with evidence is required":"查询完成且有 SQL 证据后才能生成报告。",
+      "Query checkpoint is unavailable":"这次查询的检查点不可用，可以重新提问后生成报告。",
+    });
     const error = new Error(messages[data.detail] || (typeof data.detail === "string" ? data.detail : "请求失败，请检查输入后重试。"));
     error.status = response.status;
     throw error;
@@ -75,8 +84,10 @@ function LoginFields({busy}) {
     <button className="primary" disabled={busy}>{busy ? "正在登录…" : "登录"}</button></>;
 }
 
-function ChatTurn({turn,activeTrace,onTrace,onApprove,onResume,onRetry,busy,progress}) {
+function ChatTurn({turn,activeTrace,onTrace,onReport,onApprove,onClarify,onResume,onRetry,busy,progress,recipients}) {
   const evidence = turn.evidence || [];
+  const [recipient,setRecipient] = useState("");
+  const chosen = turn.recipient || recipient;
   return <article className="turn">
     <div className="user-turn"><div>{turn.question}</div></div>
     <div className="assistant-turn"><span className="assistant-icon"><Icon name="brand" size={19}/></span><div className="assistant-body">
@@ -86,11 +97,22 @@ function ChatTurn({turn,activeTrace,onTrace,onApprove,onResume,onRetry,busy,prog
       {turn.answer && <Answer text={turn.answer}/>}
       {!!turn.rule?.length && <details className="rule-ref"><summary><Icon name="book" size={15}/> {turn.rule[0].title} <span>v{turn.rule[0].version}</span></summary>{turn.rule.map(c=><p key={c.chunk_id}>{c.text}</p>)}</details>}
       {evidence.length>0 && <Evidence evidence={evidence}/>}
-      {turn.status==="waiting" && <div className="approval"><div><strong>确认后才会共享</strong><p>接收人 {turn.recipient} · 有效期至 {new Date(turn.deadline).toLocaleString("zh-CN")}</p></div>
-        <div className="inline-actions"><button disabled={busy || turn.decision===true} onClick={()=>onApprove(turn.id,false)}>拒绝</button><button className="primary" disabled={busy || turn.decision===false} onClick={()=>onApprove(turn.id,true)}>{turn.decision===true?"继续共享":"确认共享"}</button></div>
+      {turn.status==="clarifying" && turn.clarification && <div className="approval">
+        <div><strong>先确认怎么算</strong><p>{turn.clarification.question}</p></div>
+        <div className="inline-actions">{turn.clarification.choices.map(choice=><button key={choice} disabled={busy} onClick={()=>onClarify(turn.id,choice)}>{choice}</button>)}</div>
       </div>}
+      {turn.status==="waiting" && <details className="rule-ref" open={turn.decision!==null || undefined}>
+        <summary><Icon name="file" size={15}/> 报告已生成 · 共享报告</summary>
+        <div className="approval"><div><strong>确认前仅自己可见</strong><p>共享有效期至 {new Date(turn.deadline).toLocaleString("zh-CN")}</p>
+          {turn.recipient ? <p>接收人 {turn.recipient}</p> : <label>接收人 <select value={recipient} onChange={e=>setRecipient(e.target.value)} disabled={busy}><option value="">选择接收人</option>{recipients.map(name=><option key={name}>{name}</option>)}</select></label>}
+        </div><div className="inline-actions">
+          <button disabled={busy || turn.decision===true} onClick={()=>onApprove(turn.id,false)}>取消共享</button>
+          <button className="primary" disabled={busy || !chosen || turn.decision===false} onClick={()=>onApprove(turn.id,true,chosen)}>{turn.decision===true?"继续共享":"确认共享"}</button>
+        </div></div>
+      </details>}
       <div className="turn-actions">
         <button className={activeTrace?"selected":""} onClick={()=>onTrace(turn.id)}><Icon name="activity" size={15}/>执行步骤</button>
+        {turn.mode==="ask" && turn.status==="completed" && evidence.length>0 && <button disabled={busy} onClick={()=>onReport(turn.id)}><Icon name="file" size={15}/>生成报告</button>}
         {turn.status==="running" && <button onClick={()=>onResume(turn.id)} disabled={busy}><Icon name="refresh" size={15}/>尝试续接</button>}
         {turn.status==="failed" && <button onClick={()=>onRetry(turn.question)}><Icon name="refresh" size={15}/>重新编辑</button>}
       </div>
@@ -111,9 +133,7 @@ function Workspace({session,onLogout}) {
   const [events,setEvents] = useState([]);
   const [latestEvent,setLatestEvent] = useState(null);
   const [question,setQuestion] = useState("");
-  const [mode,setMode] = useState("ask");
   const [rule,setRule] = useState("");
-  const [recipient,setRecipient] = useState("");
   const [busy,setBusy] = useState(false);
   const [loadingChat,setLoadingChat] = useState(false);
   const [error,setError] = useState("");
@@ -198,14 +218,14 @@ function Workspace({session,onLogout}) {
     setPage("chat");setSidebar(false);setTraceId(null);setEvents([]);setError("");setLoadingChat(true);
     try {
       const data=await apiCall("/conversations/"+id);
-      if(selection.current===sequence){setConversation(id);setTurns(data);setQuestion("");}
+      if(selection.current===sequence){setConversation(id);setTurns(data);setQuestion("");setRule("");}
     } catch(err){if(selection.current===sequence)fail(err);}
     finally {if(selection.current===sequence)setLoadingChat(false);}
   }
   function newChat() {
     ++selection.current;
     setPage("chat");setSidebar(false);setConversation(null);setTurns([]);setTraceId(null);setEvents([]);
-    setQuestion("");setMode("ask");setLoadingChat(false);setError("");
+    setQuestion("");setRule("");setLoadingChat(false);setError("");
   }
   function openTrace(id) {
     setEvents([]);
@@ -219,9 +239,9 @@ function Workspace({session,onLogout}) {
     if(!question.trim() || busy || running || loadingChat || !info) return;
     const sequence=selection.current;
     await action(async()=>{
-      const payload={question:question.trim(),mode,source:info.source};
+      const payload={question:question.trim(),source:info.source};
       if(conversation) payload.conversation=conversation;
-      if(mode==="report") Object.assign(payload,{rule_key:rule,recipient});
+      if(rule) payload.rule_key=rule;
       const next=await apiCall("/runs/start",payload);
       if(selection.current===sequence){
         setQuestion("");setConversation(next.conversation);setTurns(prev=>[...prev,next]);
@@ -230,10 +250,10 @@ function Workspace({session,onLogout}) {
       refresh().catch(fail);
     });
   }
-  async function decide(id,approved) {
+  async function updateTurn(id,path,body) {
     const sequence=selection.current;
     await action(async()=>{
-      const updated=await apiCall("/runs/"+id+"/approval",{approved});
+      const updated=await apiCall("/runs/"+id+path,body);
       if(selection.current===sequence){
         setTurns(prev=>prev.map(item=>item.id===id?updated:item));
         if(traceId===id){const data=await apiCall("/runs/"+id+"/events");if(selection.current===sequence)setEvents(data);}
@@ -241,7 +261,7 @@ function Workspace({session,onLogout}) {
       await refresh();
     });
   }
-  const canSend=!!question.trim() && !running && !busy && !loadingChat && !!info && (mode==="ask" || !!rule && !!recipient);
+  const canSend=!!question.trim() && !running && !busy && !loadingChat && !!info;
   return <div className="shell">
     {sidebar && <button className="sidebar-overlay" aria-label="关闭导航" onClick={()=>setSidebar(false)}/>}
     <aside className={"sidebar "+(sidebar?"open":"")}>
@@ -259,24 +279,25 @@ function Workspace({session,onLogout}) {
         <div className={"chat-column "+(!turns.length&&!loadingChat?"landing":"")}>
           <div className={"chat-log "+(!turns.length?"empty-chat":"")} ref={chatLog} aria-busy={loadingChat}>
             {loadingChat ? <p className="loading-text"><span className="spinner"/>读取会话中…</p> : turns.length===0 ? <section className="welcome"><div className="welcome-title"><span className="welcome-icon"><Icon name="brand" size={26}/></span><h1>DataPilot 数据分析助手</h1></div><p>从自然语言问题到可核对的数据结论</p></section> :
-              <section className="thread" aria-label="对话记录">{turns.map(t=><ChatTurn key={t.id} turn={t} busy={busy} progress={latestEvent?.run===t.id?latestEvent.event:null} activeTrace={traceId===t.id} onTrace={openTrace} onApprove={decide}
+              <section className="thread" aria-label="对话记录">{turns.map(t=><ChatTurn key={t.id} turn={t} busy={busy} progress={latestEvent?.run===t.id?latestEvent.event:null} activeTrace={traceId===t.id} onTrace={openTrace}
+                recipients={info?.recipients || []} onReport={id=>updateTurn(id,"/report",{})}
+                onApprove={(id,approved,recipient)=>updateTurn(id,"/approval",{approved,recipient})}
+                onClarify={(id,choice)=>updateTurn(id,"/clarification",{choice})}
                 onResume={id=>action(()=>apiCall("/runs/"+id+"/resume",{}))}
                 onRetry={text=>{setQuestion(text);composer.current?.focus();}}/>)}</section>}
           </div>
           <div className="composer-area"><form className="composer" onSubmit={e=>{e.preventDefault();send();}}>
-            {mode==="report" && <div className="composer-config">
-              <label>指标规则<select value={rule} onChange={e=>setRule(e.target.value)} required><option value="">选择规则</option>{docs.map(d=><option key={d.key} value={d.key}>{d.title} · v{d.version}</option>)}</select></label>
-              <label>共享给<select value={recipient} onChange={e=>setRecipient(e.target.value)} required><option value="">选择接收人</option>{info?.recipients.map(n=><option key={n}>{n}</option>)}</select></label>
-            </div>}
-            {mode==="report" && docs.length===0 && <button type="button" className="text-button" onClick={()=>navigate("knowledge")}>先到知识库发布指标规则</button>}
+            {docs.length>0 && <details className="rule-ref"><summary>指定计算规则（可选）{rule && " · "+(docs.find(d=>d.key===rule)?.title || rule)}</summary>
+              <div className="composer-config"><label>本次规则<select value={rule} onChange={e=>setRule(e.target.value)}><option value="">按问题分析</option>{docs.map(d=><option key={d.key} value={d.key}>{d.title} · v{d.version}</option>)}</select></label></div>
+            </details>}
             <textarea ref={composer} value={question} onChange={e=>setQuestion(e.target.value)} rows={2} maxLength={1500} aria-label="分析问题"
               placeholder="输入你的数据问题，Enter 发送，Shift + Enter 换行"
               onKeyDown={e=>{if(e.key==="Enter" && !e.shiftKey && !e.nativeEvent.isComposing){e.preventDefault();if(canSend)send();}}}/>
-            <div className="composer-tools"><div><label className="mode-select"><Icon name={mode==="ask"?"message":"file"} size={16}/><select aria-label="任务模式" value={mode} onChange={e=>setMode(e.target.value)}><option value="ask">数据库问答</option><option value="report">生成共享报告</option></select></label><span className="composer-db"><Icon name="database" size={15}/>订单与退款</span></div>
+            <div className="composer-tools"><div><span className="composer-db"><Icon name="database" size={15}/>订单与退款</span></div>
               <button className="send" type="submit" aria-label="发送问题" title="发送问题" disabled={!canSend}><Icon name="send" size={20}/></button>
             </div>
           </form>
-            {!turns.length&&!loadingChat ? <div className="examples"><div className="examples-title">推荐示例</div><div className="suggestions">{suggestions.map(([icon,title,q,desc,target])=><button type="button" key={title} onClick={()=>{setMode(target||"ask");setQuestion(q);composer.current?.focus();}}><span className="suggest-icon"><Icon name={icon}/></span><div><strong>{title}</strong><small>{desc}</small></div></button>)}</div></div> : <p className="composer-hint">AI 生成的分析请结合 SQL 证据核对。</p>}
+            {!turns.length&&!loadingChat ? <div className="examples"><div className="examples-title">推荐示例</div><div className="suggestions">{suggestions.map(([icon,title,q,desc])=><button type="button" key={title} onClick={()=>{setQuestion(q);composer.current?.focus();}}><span className="suggest-icon"><Icon name={icon}/></span><div><strong>{title}</strong><small>{desc}</small></div></button>)}</div></div> : <p className="composer-hint">AI 生成的分析请结合 SQL 证据核对。</p>}
           </div>
         </div>
         {traceId && <Trace events={events} runId={traceId} running={running===traceId} onClose={()=>openTrace(traceId)}/>}

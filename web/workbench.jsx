@@ -25,10 +25,10 @@ const paths={
 export function Icon({name,size=18}) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
-export const statusLabel={waiting:"待审批",shared:"已共享",rejected:"已拒绝",expired:"已过期",running:"进行中",completed:"已完成",failed:"失败"};
+export const statusLabel={clarifying:"待确认口径",waiting:"待共享",shared:"已共享",rejected:"已取消共享",expired:"已过期",running:"进行中",completed:"已完成",failed:"失败"};
 export const runErrors={missing_rule:"没有找到这项指标的生效规则。请先到知识库发布规则。",missing_sql_evidence:"报告缺少查询结果。可尝试说明要查询的指标和时间范围。",model_unavailable:"模型服务暂时不可用，可以重新发起分析。",model_protocol_error:"模型返回异常，查看执行步骤可了解发生在哪一轮。",knowledge_unavailable:"知识检索暂时不可用。",tool_error_limit:"工具连续失败，任务已停止。可调整问题后重试。",iteration_limit:"分析轮次已达到上限。可以缩小问题范围后重试。",unauthorized_table:"查询涉及未经授权的表。请在数据源页面查看可用表。",permission_denied:"数据库拒绝了这次查询。",readonly_required:"工作台只支持只读查询。",unknown_tool:"模型请求的工具未注册。"};
-const eventNames={knowledge_retrieved:"已检索业务规则",model_completed:"模型返回结果",tool_completed:"执行工具",report_ready:"已生成报告",approval_requested:"等待人工审批",approval_decided:"已收到审批决定",report_shared:"报告已共享",model_failed:"模型调用失败",run_failed:"任务已停止"};
-const tools={query_database:"查询数据库",database_schema:"查看表结构",search_knowledge:"检索知识库"};
+const eventNames={knowledge_retrieved:"已检索业务规则",model_completed:"模型返回结果",tool_completed:"执行工具",report_ready:"分析结果已整理",approval_requested:"报告已生成，等待确认共享",approval_decided:"已收到共享决定",report_shared:"报告已共享",metric_clarification_requested:"等待用户确认指标口径",metric_clarification_answered:"已确认指标口径",model_failed:"模型调用失败",run_failed:"任务已停止"};
+const tools={query_database:"查询数据库",database_schema:"查看表结构",search_knowledge:"检索知识库",clarify_metric:"确认指标口径"};
 
 export function progressLabel(event) {
   if(!event) return "正在分析你的问题";

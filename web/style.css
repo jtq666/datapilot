@@ -809,25 +809,6 @@ tbody tr:last-child td {
   margin-top:5px;
 }
 
-.mode-select {
-  display:flex;
-  align-items:center;
-  gap:4px;
-  margin:0;
-  background:var(--wash);
-  color:var(--blue-dark);
-  border-radius:7px;
-  padding-left:6px;
-}
-
-.mode-select select {
-  width:auto;
-  background:transparent;
-  border:0;
-  padding:5px 5px 5px 0;
-  font-size:12px;
-}
-
 .composer-db {
   color:var(--muted);
   display:inline-flex;
